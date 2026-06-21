@@ -1,17 +1,29 @@
 #!/usr/bin/env bash
-# Cron runner for the Tubi scraper.
-# Schedule daily at 7am PT by adding to crontab (crontab -e):
-#   0 14 * * * /full/path/to/tubi-agent/cron_daily.sh
+# Daily runner for the Tubi scraper.
+# Invoked by launchd via com.tubiagent.daily.plist — do not rely on user PATH.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$LOG_DIR"
-
 LOGFILE="$LOG_DIR/scrape_$(date +%Y%m%d).log"
 
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Starting scrape" | tee -a "$LOGFILE"
+# launchd strips PATH; resolve uv explicitly
+UV="$(command -v uv 2>/dev/null \
+    || echo "/Users/ruichenyang/miniconda3/bin/uv")"
 
-uv run --no-project python "$SCRIPT_DIR/src/scrape.py" 2>&1 | tee -a "$LOGFILE"
+log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" | tee -a "$LOGFILE"; }
 
-echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Done" | tee -a "$LOGFILE"
+log "Starting scrape (uv: $UV)"
+
+EXIT_CODE=0
+"$UV" run --no-project python "$SCRIPT_DIR/src/scrape_carousels.py" \
+    2>&1 | tee -a "$LOGFILE" || EXIT_CODE=$?
+
+if [ "$EXIT_CODE" -ne 0 ]; then
+    log "FAILED with exit code $EXIT_CODE"
+else
+    log "Done"
+fi
+
+exit "$EXIT_CODE"

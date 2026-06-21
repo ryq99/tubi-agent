@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd cannot expand $HOME inside plist <string> values, so the absolute
+  paths below must be edited if you copy this file to a different machine.
+  Replace YOUR_USER with the macOS short name and the trailing path with the
+  location of this repo, then `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tubiagent.daily.plist`.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tubiagent.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/YOUR_USER/projects/tubi-agent/cron_daily.sh</string>
+    </array>
+
+    <!-- 7:00am daily in local (Pacific) time -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- If the machine was asleep at 7am, run as soon as it wakes -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USER/projects/tubi-agent/logs/launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USER/projects/tubi-agent/logs/launchd.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/YOUR_USER/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/YOUR_USER</string>
+    </dict>
+</dict>
+</plist>

@@ -1,0 +1,10 @@
+data/
+logs/
+.venv/
+.DS_Store
+__pycache__/
+*.pyc
+
+# Real launchd plists contain absolute user-specific paths; commit the templates instead.
+com.tubiagent.daily.plist
+com.tubiagent.monthly.plist

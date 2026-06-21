@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Substitute YOUR_USER with your macOS short name (and adjust the repo path if
+  needed). Copy to ~/Library/LaunchAgents/ and load:
+    cp com.tubiagent.monthly.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tubiagent.monthly.plist
+
+  Fires at 2:00am on the 1st of every month. The crawl runs ~10 min in
+  incremental mode (only fetches new sitemap IDs).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tubiagent.monthly</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/YOUR_USER/projects/tubi-agent/cron_monthly.sh</string>
+    </array>
+
+    <!-- 2:00am on the 1st of every month, local time -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Day</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>2</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- If the machine was asleep at the scheduled time, run as soon as it wakes -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USER/projects/tubi-agent/logs/launchd_monthly.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USER/projects/tubi-agent/logs/launchd_monthly.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/YOUR_USER/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/YOUR_USER</string>
+    </dict>
+</dict>
+</plist>

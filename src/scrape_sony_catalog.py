@@ -15,9 +15,10 @@ Series-level objects have no publisher_id (only their episodes do), so we
 stamp `_publisher_id_inferred` from the dominant episode publisher_id.
 
 Usage:
-    python src/scrape_sony_catalog.py                # full crawl + export
-    python src/scrape_sony_catalog.py --export-only  # re-export CSV only
-    python src/scrape_sony_catalog.py --workers 12   # crank concurrency
+    python src/scrape_sony_catalog.py                  # full crawl + export
+    python src/scrape_sony_catalog.py --export-only    # re-export CSV only
+    python src/scrape_sony_catalog.py --retry-errors   # re-attempt failed IDs
+    python src/scrape_sony_catalog.py --workers 12     # crank concurrency
 """
 import argparse, csv, json, random, re, sys, threading, time
 from collections import Counter
@@ -145,6 +146,44 @@ def _load_done_ids() -> set[str]:
         return {json.loads(line)["id"] for line in f if line.strip()}
 
 
+def _parallel_fetch(todo: list[tuple[str, str]], workers: int,
+                    catalog_fh, on_fail) -> dict:
+    """Fetch every (id, kind) in parallel; append successes to catalog_fh.
+
+    on_fail(tid, kind) is called for each title that fails after retries —
+    crawl uses it to write to the errors file; retry_errors uses it to
+    accumulate the still-failing list.
+    """
+    session    = requests.Session()
+    write_lock = threading.Lock()
+    state      = {"ok": 0, "fail": 0}
+
+    def worker(tid: str, kind: str) -> None:
+        time.sleep(random.uniform(0.05, 0.20))   # jitter — be polite
+        obj = fetch_title(session, tid, kind)
+        with write_lock:
+            if obj is None:
+                on_fail(tid, kind)
+                state["fail"] += 1
+            else:
+                catalog_fh.write(json.dumps(obj, ensure_ascii=False,
+                                            separators=(",", ":")) + "\n")
+                catalog_fh.flush()
+                state["ok"] += 1
+
+    start = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [pool.submit(worker, tid, kind) for tid, kind in todo]
+        for i, _ in enumerate(as_completed(futs), 1):
+            if i % 100 == 0:
+                rate    = i / (time.time() - start)
+                eta_min = (len(todo) - i) / rate / 60
+                print(f"  {i}/{len(todo)}  ok={state['ok']}  fail={state['fail']}  "
+                      f"rate={rate:.1f}/s  ETA={eta_min:.1f}min", file=sys.stderr)
+    state["elapsed_min"] = (time.time() - start) / 60
+    return state
+
+
 def crawl(workers: int, limit: int = 0) -> None:
     """Walk sitemaps, fetch each new title, append to catalog.jsonl."""
     print("Walking sitemaps...", file=sys.stderr)
@@ -159,41 +198,56 @@ def crawl(workers: int, limit: int = 0) -> None:
         return
 
     DATA_DIR.mkdir(exist_ok=True)
-    session    = requests.Session()
-    write_lock = threading.Lock()
-    state      = {"ok": 0, "fail": 0}
     catalog_fh = CATALOG_PATH.open("a", encoding="utf-8")
     err_fh     = ERRORS_PATH.open("a", encoding="utf-8")
-
-    def worker(tid: str, kind: str) -> None:
-        time.sleep(random.uniform(0.05, 0.20))   # jitter — be polite
-        obj = fetch_title(session, tid, kind)
-        with write_lock:
-            if obj is None:
-                err_fh.write(json.dumps({"id": tid, "kind": kind}) + "\n")
-                err_fh.flush()
-                state["fail"] += 1
-            else:
-                catalog_fh.write(json.dumps(obj, ensure_ascii=False,
-                                            separators=(",", ":")) + "\n")
-                catalog_fh.flush()
-                state["ok"] += 1
-
-    start = time.time()
+    def on_fail(tid: str, kind: str) -> None:
+        err_fh.write(json.dumps({"id": tid, "kind": kind}) + "\n")
+        err_fh.flush()
     try:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futs = [pool.submit(worker, tid, kind) for tid, kind in todo]
-            for i, _ in enumerate(as_completed(futs), 1):
-                if i % 100 == 0:
-                    rate    = i / (time.time() - start)
-                    eta_min = (len(todo) - i) / rate / 60
-                    print(f"  {i}/{len(todo)}  ok={state['ok']}  fail={state['fail']}  "
-                          f"rate={rate:.1f}/s  ETA={eta_min:.1f}min", file=sys.stderr)
+        state = _parallel_fetch(todo, workers, catalog_fh, on_fail)
     finally:
         catalog_fh.close()
         err_fh.close()
     print(f"Done: ok={state['ok']}, fail={state['fail']}, "
-          f"elapsed={(time.time() - start) / 60:.1f} min")
+          f"elapsed={state['elapsed_min']:.1f} min")
+
+
+def retry_errors(workers: int) -> None:
+    """Re-attempt every ID in catalog_errors.jsonl at lower concurrency.
+
+    Failures during the main crawl are usually transient (connection-pool
+    contention, brief 429s). A single sequential retry recovered 50/50 in
+    diagnosis. We retry at lower concurrency, append successes to
+    catalog.jsonl, and rewrite the errors file with only what still fails.
+    """
+    if not ERRORS_PATH.exists():
+        print("No errors file to retry.", file=sys.stderr)
+        return
+    with ERRORS_PATH.open() as f:
+        errs = [json.loads(l) for l in f if l.strip()]
+    if not errs:
+        print("Errors file is empty.", file=sys.stderr)
+        return
+
+    # Skip IDs already in catalog (e.g. recovered by a previous retry).
+    done = _load_done_ids()
+    todo = [(e["id"], e["kind"]) for e in errs if e["id"] not in done]
+    print(f"Retrying {len(todo)} failed IDs with {workers} workers...", file=sys.stderr)
+
+    still_failing: list[tuple[str, str]] = []
+    catalog_fh = CATALOG_PATH.open("a", encoding="utf-8")
+    try:
+        state = _parallel_fetch(todo, workers, catalog_fh,
+                                lambda tid, kind: still_failing.append((tid, kind)))
+    finally:
+        catalog_fh.close()
+
+    with ERRORS_PATH.open("w", encoding="utf-8") as f:
+        for tid, kind in still_failing:
+            f.write(json.dumps({"id": tid, "kind": kind}) + "\n")
+
+    print(f"Retry done: recovered={state['ok']}, still failing={state['fail']}, "
+          f"elapsed={state['elapsed_min']:.1f} min")
 
 
 # ── Sony CSV export ───────────────────────────────────────────────────────────
@@ -251,11 +305,17 @@ def main() -> None:
     ap.add_argument("--workers",     type=int, default=8)
     ap.add_argument("--limit",       type=int, default=0,
                     help="cap titles for smoke testing")
-    ap.add_argument("--export-only", action="store_true",
+    ap.add_argument("--export-only",  action="store_true",
                     help="skip crawl; just re-export from catalog.jsonl")
+    ap.add_argument("--retry-errors", action="store_true",
+                    help="re-attempt IDs in catalog_errors.jsonl at lower concurrency")
     args = ap.parse_args()
 
-    if not args.export_only:
+    if args.retry_errors:
+        # Halve concurrency for retries — main-crawl failures were caused by
+        # connection-pool contention at full concurrency.
+        retry_errors(workers=max(1, args.workers // 2))
+    elif not args.export_only:
         crawl(args.workers, args.limit)
     export_sony()
 

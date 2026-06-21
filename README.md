@@ -27,9 +27,9 @@ launchctl start com.tubiagent.daily
 ## Output files
 
 ```
-data/tubi_YYYYMMDD.json   full nested structure
-data/tubi_YYYYMMDD.csv    flat, one row per (carousel × item)
-logs/scrape_YYYYMMDD.log  run log
+data/tubi_YYYYMMDD.json
+data/tubi_YYYYMMDD.csv
+logs/scrape_YYYYMMDD.log
 ```
 
 ---

@@ -22,6 +22,7 @@ Usage:
 import argparse, csv, json, random, re, sys, threading, time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -31,7 +32,11 @@ SONY_PUBLISHER_ID = "05eca4c3864a1eef48a92914dcbbd428"
 DATA_DIR     = Path(__file__).parent.parent / "data"
 CATALOG_PATH = DATA_DIR / "catalog.jsonl"
 ERRORS_PATH  = DATA_DIR / "catalog_errors.jsonl"
-SONY_CSV     = DATA_DIR / "sony_catalog.csv"
+
+
+def _sony_csv_path() -> Path:
+    """One CSV per month so we can diff slate changes over time."""
+    return DATA_DIR / f"sony_catalog_{datetime.now().strftime('%Y%m')}.csv"
 
 # (sitemap_filename, url_path_kind). Tubi names TV sitemaps "tv-shows-N.xml"
 # but the actual title URL path is /series/{id}/{slug}.
@@ -226,7 +231,8 @@ def export_sony() -> None:
             columns.remove(lead)
             columns.insert(0, lead)
 
-    with SONY_CSV.open("w", newline="", encoding="utf-8") as f:
+    out = _sony_csv_path()
+    with out.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
         w.writeheader()
         for t in sorted(sony, key=lambda x: -(x.get("year") or 0)):
@@ -235,7 +241,7 @@ def export_sony() -> None:
     n_movies = sum(1 for t in sony if t.get("detailed_type") == "movie")
     n_series = len(sony) - n_movies
     print(f"Sony: {len(sony)} titles ({n_movies} movies, {n_series} series) "
-          f"→ {SONY_CSV.name} ({SONY_CSV.stat().st_size // 1024} KB)")
+          f"→ {out.name} ({out.stat().st_size // 1024} KB)")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

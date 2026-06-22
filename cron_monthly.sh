@@ -2,9 +2,12 @@
 # Monthly runner for the Sony Pictures catalog scraper.
 # Invoked by launchd via com.tubiagent.monthly.plist — do not rely on user PATH.
 #
-# Behavior: incremental — keeps data/catalog.jsonl across runs and only fetches
-# new sitemap IDs. The Sony CSV is dated `sony_catalog_YYYYMM.csv` so each
-# month's snapshot is archived for diffing.
+# Behavior: fresh full crawl into data/catalog_YYYYMM.jsonl for the current
+# month, then one auto-retry pass on errors, then Sony CSV export. Per-title
+# metadata (availability windows, ratings, posters) changes month over month
+# so each month must be a fresh capture. The script's resume mechanism only
+# kicks in if a single month's run gets interrupted partway. Total runtime:
+# ~2 hours full + ~6 min retry.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

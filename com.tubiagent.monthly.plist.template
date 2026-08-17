@@ -44,7 +44,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/YOUR_USER/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>/Users/YOUR_USER/.local/bin:/Users/YOUR_USER/miniconda3/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>HOME</key>
         <string>/Users/YOUR_USER</string>
     </dict>
